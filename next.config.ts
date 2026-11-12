@@ -12,7 +12,7 @@ function lanDevOrigins(): string[] {
 
   for (const nets of Object.values(os.networkInterfaces())) {
     for (const net of nets ?? []) {
-      const v4 = net.family === "IPv4" || net.family === 4;
+      const v4 = net.family === "IPv4";
       if (!v4 || net.internal) continue;
       hosts.add(net.address);
     }
