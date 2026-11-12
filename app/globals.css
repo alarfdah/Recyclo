@@ -1,0 +1,256 @@
+:root {
+  color-scheme: light;
+  --ink: #1c1915;
+  --muted: #5c564c;
+  --paper: #fafaf8;
+  --card: #fffcf7;
+  --line: #e2d9cc;
+  --green: #1b5e45;
+  --green-dark: #134634;
+  --focus: #000;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
+  line-height: 1.45;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page {
+  width: min(100%, 34rem);
+  margin: 0 auto;
+  padding: 1.5rem 1.1rem 3rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+}
+
+.header p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.panel {
+  margin-top: 1.4rem;
+  padding: 1rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.file-button,
+.primary,
+.code-button,
+.text-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.file-button,
+.primary {
+  min-height: 3rem;
+  color: white;
+  font-weight: 650;
+}
+
+.primary {
+  border-radius: 0;
+  background: #000;
+}
+
+.file-button {
+  display: grid;
+  place-items: center;
+  border-radius: 0;
+  background: #000;
+}
+
+.primary:disabled,
+.file-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.or {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+label {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+input[type="text"] {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: white;
+  color: var(--ink);
+}
+
+input[type="text"]:focus,
+button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.hint {
+  margin: 0.4rem 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.preview {
+  margin-top: 0.9rem;
+}
+
+.preview img {
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: 0;
+  background: #ddd;
+}
+
+.text-button {
+  margin-top: 0.45rem;
+  padding: 0;
+  background: none;
+  color: var(--green-dark);
+  text-decoration: underline;
+}
+
+.result,
+.picker,
+.note {
+  margin-top: 1rem;
+}
+
+.result {
+  padding: 1rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.kicker {
+  margin: 0;
+  color: var(--green-dark);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.result h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.55rem;
+}
+
+.full-name {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+}
+
+.result h3 {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.result ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.result li + li {
+  margin-top: 0.35rem;
+}
+
+.source,
+.disclaimer,
+.note {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.source {
+  margin: 0.8rem 0 0;
+}
+
+.disclaimer {
+  margin: 0.7rem 0 0;
+}
+
+.picker h2 {
+  margin: 0 0 0.7rem;
+  font-size: 1.05rem;
+}
+
+.codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.code-button {
+  min-height: 3rem;
+  border-radius: 0;
+  background: #000;
+  border: 1px solid #000;
+  color: white;
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+}
+
+.code-button strong {
+  display: block;
+}
+
+.code-button span {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.82rem;
+}
+
+.note {
+  margin-bottom: 0;
+}

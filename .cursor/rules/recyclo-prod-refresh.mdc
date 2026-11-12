@@ -1,0 +1,15 @@
+---
+description: Rebuild and restart production after Recyclo CSS/UI changes when using next start
+globs: app/**/*.{css,tsx,ts}, **/*.css
+alwaysApply: false
+---
+
+# Production UI refresh (Recyclo)
+
+After changing app CSS or UI for Recyclo:
+
+- If the app is served with `next start` / `npm start` / `npm run prod`, **rebuild and restart** before assuming styles are live: stop the server, run `npm run rebuild` (or `npm run build`), then `npm start`. Tell the user to hard-refresh (Ctrl+Shift+R).
+- If using `npm run dev` / `next dev`, a save + browser refresh is enough — no rebuild.
+- Prefer mentioning which mode you used. Production serves `.next`; source CSS edits are invisible until rebuild.
+
+Node PATH tip (Windows): if `node`/`npm` are missing, prepend `$env:TEMP\recyclo-node\node-v24.22.1-win-x64` to `$env:Path`.
