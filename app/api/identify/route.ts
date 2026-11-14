@@ -1,5 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { openai } from "@ai-sdk/openai";
+import { APICallError, generateText, Output } from "ai";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   getPlastic,
   matchPlastic,
@@ -24,6 +26,18 @@ type AiIdentification = {
   unsure?: boolean;
   notPlastic?: boolean;
 };
+
+const identificationSchema = z.object({
+  resinCode: z
+    .number()
+    .int()
+    .min(1)
+    .max(7)
+    .nullable()
+    .describe("Resin identification code 1–7, or null if unknown"),
+  unsure: z.boolean().describe("True when the plastic type is ambiguous"),
+  notPlastic: z.boolean().describe("True when the item is not plastic"),
+});
 
 function result(plastic: PublicPlastic, source: Source, message?: string) {
   return NextResponse.json({
@@ -73,11 +87,14 @@ function sniffMime(bytes: Buffer): string | null {
   return null;
 }
 
-function geminiFailureMessage(error: unknown): string {
-  const status =
-    typeof error === "object" && error && "status" in error
-      ? Number((error as { status?: unknown }).status)
-      : NaN;
+function identifyFailureMessage(error: unknown): string {
+  const status = APICallError.isInstance(error)
+    ? error.statusCode
+    : typeof error === "object" && error && "statusCode" in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : typeof error === "object" && error && "status" in error
+        ? Number((error as { status?: unknown }).status)
+        : NaN;
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const lower = message.toLowerCase();
@@ -89,13 +106,17 @@ function geminiFailureMessage(error: unknown): string {
     lower.includes("permission") ||
     lower.includes("unauthorized") ||
     lower.includes("forbidden") ||
-    (lower.includes("invalid_argument") && lower.includes("key"))
+    lower.includes("incorrect api key") ||
+    lower.includes("invalid_api_key")
   ) {
-    return "Photo reading could not authenticate with Gemini. Check GEMINI_API_KEY in .env.local, then restart the server. Or pick the number inside the recycling mark.";
+    return "Photo reading could not authenticate with OpenAI. Check OPENAI_API_KEY in .env.local, then restart the server. Or pick the number inside the recycling mark.";
   }
 
   if (
+    status === 429 ||
     status === 503 ||
+    lower.includes("rate limit") ||
+    lower.includes("overloaded") ||
     lower.includes("unavailable") ||
     lower.includes("high demand") ||
     lower.includes("try again later")
@@ -106,17 +127,38 @@ function geminiFailureMessage(error: unknown): string {
   return "That could not be checked. Pick the number inside the recycling mark.";
 }
 
-async function identifyWithGemini(
+function isProviderBusy(error: unknown): boolean {
+  const status = APICallError.isInstance(error)
+    ? error.statusCode
+    : typeof error === "object" && error && "statusCode" in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : typeof error === "object" && error && "status" in error
+        ? Number((error as { status?: unknown }).status)
+        : NaN;
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const lower = message.toLowerCase();
+  return (
+    status === 429 ||
+    status === 503 ||
+    lower.includes("rate limit") ||
+    lower.includes("overloaded") ||
+    lower.includes("unavailable") ||
+    lower.includes("high demand") ||
+    lower.includes("try again later")
+  );
+}
+
+async function identifyWithOpenAI(
   text: string | undefined,
   image: { mimeType: string; data: string } | undefined,
 ): Promise<AiIdentification> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("missing key");
 
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = [
     "Identify the household plastic in the user's photo and/or description.",
-    "Return JSON only.",
+    "Return structured fields only.",
     "resinCode is the resin identification code from 1 to 7 when you can tell, otherwise null.",
     "If a chasing-arrows number is visible, use that number.",
     "Use a common item only when the type is obvious: clear drink bottle = 1, milk jug = 2, plastic shopping bag = 4, foam cup = 6.",
@@ -125,60 +167,39 @@ async function identifyWithGemini(
     text ? `Description: ${text}` : "No description was provided.",
   ].join(" ");
 
-  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
-    { text: prompt },
-  ];
+  const content: Array<
+    { type: "text"; text: string } | { type: "file"; mediaType: string; data: string }
+  > = [{ type: "text", text: prompt }];
   if (image) {
-    parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+    content.push({
+      type: "file",
+      mediaType: image.mimeType,
+      data: image.data,
+    });
   }
 
   const generate = () =>
-    ai.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: parts,
-      config: {
-        temperature: 0,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            resinCode: { type: Type.INTEGER, nullable: true },
-            unsure: { type: Type.BOOLEAN },
-            notPlastic: { type: Type.BOOLEAN },
-          },
-          required: ["unsure", "notPlastic"],
-        },
-      },
+    generateText({
+      model: openai("gpt-4o-mini"),
+      temperature: 0,
+      messages: [{ role: "user", content }],
+      output: Output.object({
+        schema: identificationSchema,
+      }),
     });
 
   let response;
   try {
     response = await generate();
   } catch (error) {
-    if (!isGeminiBusy(error)) throw error;
+    if (!isProviderBusy(error)) throw error;
     await new Promise((resolve) => setTimeout(resolve, 800));
     response = await generate();
   }
 
-  const raw = response.text;
-  if (!raw) throw new Error("empty model response");
-  return JSON.parse(raw) as AiIdentification;
-}
-
-function isGeminiBusy(error: unknown): boolean {
-  const status =
-    typeof error === "object" && error && "status" in error
-      ? Number((error as { status?: unknown }).status)
-      : NaN;
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const lower = message.toLowerCase();
-  return (
-    status === 503 ||
-    lower.includes("unavailable") ||
-    lower.includes("high demand") ||
-    lower.includes("try again later")
-  );
+  const identified = response.output;
+  if (!identified) throw new Error("empty model response");
+  return identified;
 }
 
 export async function POST(request: Request) {
@@ -213,7 +234,7 @@ export async function POST(request: Request) {
     if (matched) return result(toPublicPlastic(matched), "guide");
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.OPENAI_API_KEY?.trim()) {
     return pick(
       image
         ? "Photo reading needs an API key. Pick the number inside the recycling mark."
@@ -222,7 +243,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const identified = await identifyWithGemini(text || undefined, image);
+    const identified = await identifyWithOpenAI(text || undefined, image);
     if (identified.notPlastic) {
       return pick("That does not look like plastic. If it is, pick the number inside the recycling mark.");
     }
@@ -233,7 +254,7 @@ export async function POST(request: Request) {
     }
     return result(toPublicPlastic(plastic), image ? "photo" : "description");
   } catch (error) {
-    console.error("[identify] Gemini failed:", error instanceof Error ? error.message : error);
-    return pick(geminiFailureMessage(error));
+    console.error("[identify] OpenAI failed:", error instanceof Error ? error.message : error);
+    return pick(identifyFailureMessage(error));
   }
 }

@@ -55,7 +55,7 @@ Or in one step: `npm.cmd run prod`.
 1. Push this repo to GitHub (already configured as `origin`).
 2. On [vercel.com](https://vercel.com), **Add New… → Project** and import the GitHub repo.
 3. Framework preset: **Next.js** (auto-detected). Leave build settings as default (`next build`).
-4. In **Settings → Environment Variables**, add `GEMINI_API_KEY` (copy the value from your local `.env.local`). Apply to Production (and Preview if you want photo ID on preview deploys).
+4. In **Settings → Environment Variables**, add `OPENAI_API_KEY` (copy the value from your local `.env.local`). Apply to Production (and Preview if you want photo ID on preview deploys). Remove any old `GEMINI_API_KEY` if it is still set — it is no longer used.
 5. Deploy. The app URL will look like `https://recyclo-….vercel.app` (or your custom domain).
 
 Photo identification needs the env var on Vercel; without it, known descriptions and resin codes 1–7 still work from the built-in guide.
@@ -69,7 +69,7 @@ Production serves the built `.next` output, so CSS and UI edits in source files 
 
 ## Photo reading
 
-Copy `.env.example` to `.env.local` and set `GEMINI_API_KEY`. The server calls Gemini Flash (`gemini-flash-latest`) only when that key is set. The key never goes to the browser.
+Copy `.env.example` to `.env.local` and set `OPENAI_API_KEY`. The server calls OpenAI `gpt-4o-mini` (via the Vercel AI SDK) only when that key is set. The key never goes to the browser. `GEMINI_API_KEY` is deprecated and ignored.
 
 Without a key:
 
