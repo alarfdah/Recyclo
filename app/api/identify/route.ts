@@ -87,9 +87,9 @@ function sniffMime(bytes: Buffer): string | null {
   return null;
 }
 
-function identifyFailureMessage(error: unknown): string {
+function errorDetails(error: unknown): { status: number; lower: string } {
   const status = APICallError.isInstance(error)
-    ? error.statusCode
+    ? Number(error.statusCode)
     : typeof error === "object" && error && "statusCode" in error
       ? Number((error as { statusCode?: unknown }).statusCode)
       : typeof error === "object" && error && "status" in error
@@ -97,12 +97,31 @@ function identifyFailureMessage(error: unknown): string {
         : NaN;
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const lower = message.toLowerCase();
+  return { status, lower: message.toLowerCase() };
+}
+
+function isBillingOrQuotaError(error: unknown): boolean {
+  const { lower } = errorDetails(error);
+  return (
+    lower.includes("no credits") ||
+    lower.includes("credit balance") ||
+    lower.includes("insufficient_quota") ||
+    lower.includes("insufficient quota") ||
+    lower.includes("billing") ||
+    lower.includes("payment required") ||
+    lower.includes("exceeded your current quota") ||
+    lower.includes("add credits")
+  );
+}
+
+function identifyFailureMessage(error: unknown): string {
+  const { status, lower } = errorDetails(error);
 
   if (
     status === 401 ||
     status === 403 ||
     lower.includes("api key") ||
+    lower.includes("missing key") ||
     lower.includes("permission") ||
     lower.includes("unauthorized") ||
     lower.includes("forbidden") ||
@@ -110,6 +129,10 @@ function identifyFailureMessage(error: unknown): string {
     lower.includes("invalid_api_key")
   ) {
     return "Photo reading could not authenticate with OpenAI. Check OPENAI_API_KEY in .env.local, then restart the server. Or pick the number inside the recycling mark.";
+  }
+
+  if (isBillingOrQuotaError(error) || status === 402) {
+    return "Photo reading needs OpenAI credits. Add billing credits at platform.openai.com, then try again. Or pick the number inside the recycling mark.";
   }
 
   if (
@@ -128,16 +151,8 @@ function identifyFailureMessage(error: unknown): string {
 }
 
 function isProviderBusy(error: unknown): boolean {
-  const status = APICallError.isInstance(error)
-    ? error.statusCode
-    : typeof error === "object" && error && "statusCode" in error
-      ? Number((error as { statusCode?: unknown }).statusCode)
-      : typeof error === "object" && error && "status" in error
-        ? Number((error as { status?: unknown }).status)
-        : NaN;
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const lower = message.toLowerCase();
+  if (isBillingOrQuotaError(error)) return false;
+  const { status, lower } = errorDetails(error);
   return (
     status === 429 ||
     status === 503 ||
