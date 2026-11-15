@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   getPlastic,
-  matchPlastic,
+  matchDescription,
   toPublicPlastic,
   type PublicPlastic,
 } from "@/lib/plastics";
@@ -51,6 +51,13 @@ function result(plastic: PublicPlastic, source: Source, message?: string) {
 function pick(message: string, status = 200) {
   return NextResponse.json(
     { outcome: "pick", source: null, plastic: null, message },
+    { status },
+  );
+}
+
+function clarify(message: string, status = 200) {
+  return NextResponse.json(
+    { outcome: "clarify", source: null, plastic: null, message },
     { status },
   );
 }
@@ -222,12 +229,12 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as Body;
   } catch {
-    return pick("Send a description or a photo.", 400);
+    return clarify("Enter a description of the item (for example water bottle or yogurt cup).", 400);
   }
 
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (text.length > MAX_TEXT) {
-    return pick("Use a shorter description.", 400);
+    return clarify("Use a shorter description.", 400);
   }
 
   let image: { mimeType: string; data: string } | undefined;
@@ -240,34 +247,58 @@ export async function POST(request: Request) {
     image = parsed;
   }
 
+  // Description-first: empty input must not dump users into the number picker.
   if (!text && !image) {
-    return pick("Add a photo or a short description.", 400);
+    return clarify(
+      "Enter a description of the item (for example water bottle, milk jug, yogurt cup, or grocery bag).",
+      400,
+    );
+  }
+
+  if (text) {
+    const matched = matchDescription(text);
+    if (matched.status === "matched") {
+      return result(toPublicPlastic(matched.plastic), "guide");
+    }
+    // Description-only: guide match drives the answer; clarify instead of pick.
+    if (!image) {
+      if (matched.status === "ambiguous") {
+        return clarify(matched.message);
+      }
+      return clarify(matched.message);
+    }
+    // Photo + unmatched/ambiguous text: keep going to vision; text alone was not enough.
   }
 
   if (!image) {
-    const matched = matchPlastic(text);
-    if (matched) return result(toPublicPlastic(matched), "guide");
+    return clarify(
+      "Enter a description of the item (for example water bottle, milk jug, yogurt cup, or grocery bag).",
+    );
   }
 
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return pick(
-      image
-        ? "Photo reading needs an API key. Pick the number inside the recycling mark."
-        : "That description is not in the guide. Pick the number inside the recycling mark.",
+      "Photo reading needs an API key. Describe the item instead, or pick the number inside the recycling mark.",
     );
   }
 
   try {
     const identified = await identifyWithOpenAI(text || undefined, image);
     if (identified.notPlastic) {
-      return pick("That does not look like plastic. If it is, pick the number inside the recycling mark.");
+      return clarify(
+        "That does not look like plastic. Describe the plastic item, or pick the number inside the recycling mark if you can see it.",
+      );
     }
     const code = identified.resinCode;
     const plastic = typeof code === "number" ? getPlastic(code) : undefined;
     if (identified.unsure || !plastic) {
-      return pick("The type is unclear. Pick the number inside the recycling mark.");
+      return pick(
+        text
+          ? "The photo is unclear and the description did not match the guide. Pick the number inside the recycling mark, or try a clearer item name."
+          : "The type is unclear from the photo. Add a short description, or pick the number inside the recycling mark.",
+      );
     }
-    return result(toPublicPlastic(plastic), image ? "photo" : "description");
+    return result(toPublicPlastic(plastic), "photo");
   } catch (error) {
     console.error("[identify] OpenAI failed:", error instanceof Error ? error.message : error);
     return pick(identifyFailureMessage(error));

@@ -29,6 +29,10 @@ export const PLASTICS: Plastic[] = [
       "soda bottle",
       "pop bottle",
       "soft drink bottle",
+      "drink bottle",
+      "clear bottle",
+      "clear drink bottle",
+      "beverage bottle",
       "number 1",
       "no 1",
       "code 1",
@@ -50,9 +54,14 @@ export const PLASTICS: Plastic[] = [
       "high density polyethylene",
       "high-density polyethylene",
       "milk jug",
+      "milk bottle",
       "detergent bottle",
+      "detergent",
       "shampoo bottle",
+      "shampoo",
       "laundry bottle",
+      "laundry detergent",
+      "bleach bottle",
       "number 2",
       "no 2",
       "code 2",
@@ -73,7 +82,9 @@ export const PLASTICS: Plastic[] = [
       "pvc",
       "polyvinyl chloride",
       "vinyl plastic",
+      "vinyl",
       "pvc pipe",
+      "blister pack",
       "number 3",
       "no 3",
       "code 3",
@@ -98,7 +109,10 @@ export const PLASTICS: Plastic[] = [
       "shopping bag",
       "grocery bag",
       "bread bag",
+      "produce bag",
       "plastic film",
+      "cling wrap",
+      "squeezable bottle",
       "number 4",
       "no 4",
       "code 4",
@@ -121,8 +135,13 @@ export const PLASTICS: Plastic[] = [
       "yogurt cup",
       "yoghurt cup",
       "yogurt pot",
+      "yoghurt pot",
+      "yogurt",
+      "yoghurt",
       "margarine tub",
+      "butter tub",
       "medicine bottle",
+      "pill bottle",
       "bottle cap",
       "number 5",
       "no 5",
@@ -144,9 +163,13 @@ export const PLASTICS: Plastic[] = [
       "ps",
       "polystyrene",
       "styrofoam",
+      "styro foam",
       "foam cup",
       "foam container",
       "foam takeout",
+      "foam box",
+      "foam plate",
+      "disposable foam",
       "number 6",
       "no 6",
       "code 6",
@@ -177,7 +200,42 @@ export const PLASTICS: Plastic[] = [
   },
 ];
 
-const CODE_ALIASES = new Set(["1", "2", "3", "4", "5", "6", "7"]);
+/** Short phrases that alone are too vague to assign a single resin code. */
+const AMBIGUOUS_HINTS: Array<{ pattern: RegExp; message: string }> = [
+  {
+    pattern: /^(plastic )?bottles?$/,
+    message:
+      "Which kind of bottle? Try “water bottle” or “soda bottle” (usually 1), or “milk jug” / “detergent bottle” (usually 2).",
+  },
+  {
+    pattern: /^(plastic )?cups?$/,
+    message:
+      "Which kind of cup? Try “yogurt cup” (usually 5) or “foam cup” / “styrofoam” (usually 6).",
+  },
+  {
+    pattern: /^(plastic )?bags?$/,
+    message:
+      "If it’s a shopping or grocery bag, say “grocery bag” or “plastic bag” (usually 4). Store drop-off is typical for film.",
+  },
+  {
+    pattern: /^(plastic )?jugs?$/,
+    message: "Try a more specific jug, such as “milk jug” (usually 2).",
+  },
+  {
+    pattern: /^(plastic )?containers?$/,
+    message:
+      "Name the item more specifically (for example yogurt cup, takeout foam, or the number in the recycling mark).",
+  },
+  {
+    pattern: /^(plastic|plastics)$/,
+    message:
+      "Describe the item (yogurt cup, water bottle, grocery bag) or enter the number inside the recycling mark (1–7).",
+  },
+];
+
+const CODE_IN_TEXT =
+  /(?:^|\s)(?:#|no\.?|number|code|resin)\s*([1-7])(?:\s|$)/i;
+const BARE_CODE = /^([1-7])$/;
 
 function normalize(input: string): string {
   return input
@@ -188,9 +246,28 @@ function normalize(input: string): string {
     .trim();
 }
 
+/** Light plural stemming so “water bottles” still hits “water bottle”. */
+function singularizeToken(token: string): string {
+  if (token.length <= 3) return token;
+  if (token.endsWith("ies") && token.length > 4) return `${token.slice(0, -3)}y`;
+  if (token.endsWith("sses") || token.endsWith("shes") || token.endsWith("ches")) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && !token.endsWith("ss")) return token.slice(0, -1);
+  return token;
+}
+
+function normalizeForMatch(input: string): string {
+  return normalize(input)
+    .split(" ")
+    .filter(Boolean)
+    .map(singularizeToken)
+    .join(" ");
+}
+
 const ALIASES = PLASTICS.flatMap((plastic) =>
   plastic.aliases.map((alias) => ({
-    alias: normalize(alias),
+    alias: normalizeForMatch(alias),
     plastic,
   })),
 ).sort((a, b) => b.alias.length - a.alias.length);
@@ -199,20 +276,61 @@ export function getPlastic(code: number): Plastic | undefined {
   return PLASTICS.find((plastic) => plastic.code === code);
 }
 
-export function matchPlastic(input: string): Plastic | null {
-  const text = normalize(input);
-  if (!text) return null;
+export type DescriptionMatch =
+  | { status: "matched"; plastic: Plastic }
+  | { status: "ambiguous"; message: string }
+  | { status: "unmatched"; message: string };
 
-  if (CODE_ALIASES.has(text)) {
-    return getPlastic(Number(text)) ?? null;
+const UNMATCHED_MESSAGE =
+  "Could not match that to a plastic type. Try a common item name (water bottle, milk jug, yogurt cup, grocery bag, styrofoam) or the number in the recycling mark (1–7).";
+
+/**
+ * Match a user description to a resin code using the built-in guide.
+ * Prefers explicit codes, then longest alias hits, then known-ambiguous prompts.
+ */
+export function matchDescription(input: string): DescriptionMatch {
+  const raw = normalize(input);
+  if (!raw) {
+    return {
+      status: "unmatched",
+      message: "Enter a short description of the item (for example water bottle or yogurt cup).",
+    };
+  }
+
+  const text = normalizeForMatch(input);
+
+  const bare = text.match(BARE_CODE);
+  if (bare) {
+    const plastic = getPlastic(Number(bare[1]));
+    if (plastic) return { status: "matched", plastic };
+  }
+
+  const coded = ` ${raw} `.match(CODE_IN_TEXT) ?? ` ${text} `.match(CODE_IN_TEXT);
+  if (coded) {
+    const plastic = getPlastic(Number(coded[1]));
+    if (plastic) return { status: "matched", plastic };
   }
 
   const padded = ` ${text} `;
   for (const entry of ALIASES) {
-    if (padded.includes(` ${entry.alias} `)) return entry.plastic;
+    if (padded.includes(` ${entry.alias} `)) {
+      return { status: "matched", plastic: entry.plastic };
+    }
   }
 
-  return null;
+  for (const hint of AMBIGUOUS_HINTS) {
+    if (hint.pattern.test(text)) {
+      return { status: "ambiguous", message: hint.message };
+    }
+  }
+
+  return { status: "unmatched", message: UNMATCHED_MESSAGE };
+}
+
+/** @deprecated Prefer matchDescription; kept for simple exact/alias lookups. */
+export function matchPlastic(input: string): Plastic | null {
+  const result = matchDescription(input);
+  return result.status === "matched" ? result.plastic : null;
 }
 
 export type PublicPlastic = Omit<Plastic, "aliases">;

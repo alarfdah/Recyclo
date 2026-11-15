@@ -6,7 +6,7 @@ import { PLASTICS, toPublicPlastic, type PublicPlastic } from "@/lib/plastics";
 type Source = "guide" | "photo" | "description";
 
 type IdentifyResponse = {
-  outcome: "result" | "pick";
+  outcome: "result" | "pick" | "clarify";
   source: Source | null;
   plastic: PublicPlastic | null;
   message?: string;
@@ -28,7 +28,8 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IdentifyResponse | null>(null);
 
-  const canSubmit = Boolean(text.trim() || imageBase64) && !busy;
+  const description = text.trim();
+  const canSubmit = !busy;
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -53,6 +54,18 @@ export default function HomePage() {
   }
 
   async function identify() {
+    if (!description && !imageBase64) {
+      setError(null);
+      setResult({
+        outcome: "clarify",
+        source: null,
+        plastic: null,
+        message:
+          "Enter a description of the item (for example water bottle, milk jug, yogurt cup, or grocery bag).",
+      });
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setResult(null);
@@ -61,19 +74,31 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: text.trim() || undefined,
+          text: description || undefined,
           imageBase64: imageBase64 || undefined,
         }),
       });
       const data = (await response.json()) as IdentifyResponse & { message?: string };
       if (!response.ok) {
-        setError(data.message || "Something went wrong. Pick the number on the mark.");
-        setResult({ outcome: "pick", source: null, plastic: null });
+        const outcome = data.outcome === "clarify" || data.outcome === "pick" ? data.outcome : "clarify";
+        setResult({
+          outcome,
+          source: null,
+          plastic: null,
+          message:
+            data.message ||
+            (outcome === "pick"
+              ? "Something went wrong. Pick the number on the mark if you can see it."
+              : "Enter a description of the item."),
+        });
+        if (outcome === "pick" && !data.message) {
+          setError("Something went wrong. Pick the number on the mark if you can see it.");
+        }
         return;
       }
       setResult(data);
     } catch {
-      setError("Could not reach Recyclo. Pick the number on the mark if you can see it.");
+      setError("Could not reach Recyclo. Try describing the item, or pick the number on the mark if you can see it.");
       setResult({ outcome: "pick", source: null, plastic: null });
     } finally {
       setBusy(false);
@@ -93,17 +118,36 @@ export default function HomePage() {
   }
 
   const showPicker = result?.outcome === "pick";
+  const showClarify = result?.outcome === "clarify" && Boolean(result.message);
   const plastic = result?.outcome === "result" ? result.plastic : null;
 
   return (
     <main className="page">
       <header className="header">
         <h1>Recyclo</h1>
-        <p>Take a photo of a plastic, or describe it.</p>
+        <p>Describe a plastic item to learn how to reuse or recycle it.</p>
       </header>
 
       <section className="panel">
         <div className="actions">
+          <label htmlFor="description">
+            Description
+            <input
+              id="description"
+              type="text"
+              value={text}
+              placeholder="yogurt cup, plastic bag, #2"
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && canSubmit) void identify();
+              }}
+            />
+          </label>
+          <p className="hint">Examples: water bottle, milk jug, yogurt cup, grocery bag, styrofoam</p>
+          <button type="button" className="primary" disabled={!canSubmit} onClick={() => void identify()}>
+            {busy ? "Checking…" : "Identify"}
+          </button>
+          <p className="or">optional photo</p>
           <button
             type="button"
             className="file-button"
@@ -135,24 +179,6 @@ export default function HomePage() {
             accept="image/*"
             onChange={(event) => onFile(event.target.files?.[0])}
           />
-          <p className="or">or describe it</p>
-          <label htmlFor="description">
-            Description
-            <input
-              id="description"
-              type="text"
-              value={text}
-              placeholder="yogurt cup, plastic bag, #2"
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && canSubmit) void identify();
-              }}
-            />
-          </label>
-          <p className="hint">Examples: water bottle, milk jug, styrofoam</p>
-          <button type="button" className="primary" disabled={!canSubmit} onClick={() => void identify()}>
-            {busy ? "Checking…" : "Identify"}
-          </button>
         </div>
         {previewUrl ? (
           <div className="preview">
@@ -165,6 +191,7 @@ export default function HomePage() {
       </section>
 
       {error ? <p className="note">{error}</p> : null}
+      {showClarify ? <p className="note">{result?.message}</p> : null}
       {result?.message && result.outcome === "pick" ? <p className="note">{result.message}</p> : null}
 
       {showPicker ? (
