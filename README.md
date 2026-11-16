@@ -55,10 +55,10 @@ Or in one step: `npm.cmd run prod`.
 1. Push this repo to GitHub (already configured as `origin`).
 2. On [vercel.com](https://vercel.com), **Add New… → Project** and import the GitHub repo.
 3. Framework preset: **Next.js** (auto-detected). Leave build settings as default (`next build`).
-4. In **Settings → Environment Variables**, add `OPENAI_API_KEY` (copy the value from your local `.env.local`). Apply to Production (and Preview if you want photo ID on preview deploys). Remove any old `GEMINI_API_KEY` if it is still set — it is no longer used.
+4. In **Settings → Environment Variables**, add `GEMINI_API_KEY` for description AI (and optionally `OPENAI_API_KEY` for photo ID). Copy values from your local `.env.local`. Apply to Production (and Preview if you want AI on preview deploys).
 5. Deploy. The app URL will look like `https://recyclo-….vercel.app` (or your custom domain).
 
-Photo identification needs the env var on Vercel; without it, known descriptions and resin codes 1–7 still work from the built-in guide.
+Description AI needs `GEMINI_API_KEY` on Vercel; without it, known guide aliases and resin codes 1–7 still work. Photo ID needs `OPENAI_API_KEY`.
 
 ## Seeing UI changes
 
@@ -67,13 +67,16 @@ Photo identification needs the env var on Vercel; without it, known descriptions
 
 Production serves the built `.next` output, so CSS and UI edits in source files stay invisible until you rebuild.
 
-## Photo reading
+## AI identification
 
-Copy `.env.example` to `.env.local` and set `OPENAI_API_KEY`. The server calls OpenAI `gpt-4o-mini` (via the Vercel AI SDK) only when that key is set. The key never goes to the browser. `GEMINI_API_KEY` is deprecated and ignored.
+Copy `.env.example` to `.env.local`. Keys never go to the browser.
 
-Without a key:
+- **`GEMINI_API_KEY`** — description AI. After the built-in guide/aliases fail to match, the server calls Gemini `gemini-flash-lite-latest` (via `@ai-sdk/google`) to classify resin codes 1–7. Free-tier friendly.
+- **`OPENAI_API_KEY`** — optional photo reading with OpenAI `gpt-4o-mini`. Not required for typed descriptions.
 
-- A known description still works (`water bottle`, `milk jug`, `plastic bag`, `#2`).
-- A photo, or a description that is not in the guide, asks you to pick resin code 1–7.
+Without Gemini:
 
-When the model names a code from 1 to 7, the page shows that guide entry. The model identifies the plastic. The guide supplies the reuse and recycle text.
+- Known descriptions still work (`water bottle`, `milk jug`, `yogurt cup`, `#2`).
+- Unmatched descriptions ask for a clearer name or resin code 1–7 (no forced number picker for text-only).
+
+When a model names a code from 1 to 7, the page shows that guide entry. The model identifies the plastic. The guide supplies the reuse and recycle text.

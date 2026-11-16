@@ -10,7 +10,12 @@ type IdentifyResponse = {
   source: Source | null;
   plastic: PublicPlastic | null;
   message?: string;
+  /** Why this resin code was chosen (guide alias or AI explanation). */
+  reason?: string;
 };
+
+/** Longer than Gemini's 12s server cap (and a busy retry) so AI work is not mistaken for "offline". */
+const IDENTIFY_CLIENT_TIMEOUT_MS = 25_000;
 
 const SOURCE_LABEL: Record<Source, string> = {
   guide: "From the guide",
@@ -69,6 +74,10 @@ export default function HomePage() {
     setBusy(true);
     setError(null);
     setResult(null);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), IDENTIFY_CLIENT_TIMEOUT_MS);
+
     try {
       const response = await fetch("/api/identify", {
         method: "POST",
@@ -77,8 +86,24 @@ export default function HomePage() {
           text: description || undefined,
           imageBase64: imageBase64 || undefined,
         }),
+        signal: controller.signal,
       });
-      const data = (await response.json()) as IdentifyResponse & { message?: string };
+
+      let data: IdentifyResponse & { message?: string };
+      try {
+        data = (await response.json()) as IdentifyResponse & { message?: string };
+      } catch {
+        // HTML/empty bodies (route crash, proxy page) used to fall into the network catch.
+        setResult({
+          outcome: "clarify",
+          source: null,
+          plastic: null,
+          message:
+            "Recyclo returned an unexpected response. Try again, or enter the number in the recycling mark (1–7).",
+        });
+        return;
+      }
+
       if (!response.ok) {
         const outcome = data.outcome === "clarify" || data.outcome === "pick" ? data.outcome : "clarify";
         setResult({
@@ -91,16 +116,35 @@ export default function HomePage() {
               ? "Something went wrong. Pick the number on the mark if you can see it."
               : "Enter a description of the item."),
         });
-        if (outcome === "pick" && !data.message) {
-          setError("Something went wrong. Pick the number on the mark if you can see it.");
-        }
         return;
       }
       setResult(data);
-    } catch {
-      setError("Could not reach Recyclo. Try describing the item, or pick the number on the mark if you can see it.");
-      setResult({ outcome: "pick", source: null, plastic: null });
+    } catch (error) {
+      const aborted =
+        (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError") ||
+        (error instanceof Error && error.name === "AbortError");
+
+      if (aborted) {
+        setResult({
+          outcome: "clarify",
+          source: null,
+          plastic: null,
+          message:
+            "That check took too long. Try again in a moment, or use a common item name (water bottle, milk jug, yogurt cup) or the number in the recycling mark (1–7).",
+        });
+        return;
+      }
+
+      // Real network / offline / server-down failures only — not AI timeouts or bad JSON.
+      setResult({
+        outcome: "clarify",
+        source: null,
+        plastic: null,
+        message:
+          "Could not reach Recyclo. Check that the app is running, then try again — or enter the number in the recycling mark (1–7).",
+      });
     } finally {
+      window.clearTimeout(timeoutId);
       setBusy(false);
     }
   }
@@ -114,6 +158,7 @@ export default function HomePage() {
       source: "guide",
       plastic: toPublicPlastic(plastic),
       message: "You picked this code.",
+      reason: `You picked resin code #${plastic.code} (${plastic.name}) from the recycling mark.`,
     });
   }
 
@@ -218,6 +263,12 @@ export default function HomePage() {
           <p className="kicker">Plastic {plastic.code}</p>
           <h2>{plastic.name}</h2>
           <p className="full-name">{plastic.fullName}</p>
+          {result.reason ? (
+            <p className="reason">
+              <span className="reason-label">Why this type</span>
+              {result.reason}
+            </p>
+          ) : null}
           <h3>What it can be used for</h3>
           <ul>
             {plastic.uses.map((use) => (
@@ -228,7 +279,7 @@ export default function HomePage() {
           <p>{plastic.recycle}</p>
           <p className="source">
             {SOURCE_LABEL[result.source]}
-            {result.message && result.source === "guide" ? ` · ${result.message}` : ""}
+            {result.message ? ` · ${result.message}` : ""}
           </p>
           <p className="disclaimer">
             This is general guidance. Local collection rules differ.

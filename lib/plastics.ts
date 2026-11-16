@@ -26,6 +26,7 @@ export const PLASTICS: Plastic[] = [
       "pete",
       "polyethylene terephthalate",
       "water bottle",
+      "clear water bottle",
       "soda bottle",
       "pop bottle",
       "soft drink bottle",
@@ -85,6 +86,7 @@ export const PLASTICS: Plastic[] = [
       "vinyl",
       "pvc pipe",
       "blister pack",
+      "blister packs",
       "number 3",
       "no 3",
       "code 3",
@@ -134,6 +136,8 @@ export const PLASTICS: Plastic[] = [
       "polypropylene",
       "yogurt cup",
       "yoghurt cup",
+      "yogurt tub",
+      "yoghurt tub",
       "yogurt pot",
       "yoghurt pot",
       "yogurt",
@@ -143,6 +147,7 @@ export const PLASTICS: Plastic[] = [
       "medicine bottle",
       "pill bottle",
       "bottle cap",
+      "bottle caps",
       "number 5",
       "no 5",
       "code 5",
@@ -191,7 +196,10 @@ export const PLASTICS: Plastic[] = [
       "mixed plastic",
       "polycarbonate",
       "bioplastic",
+      "bioplastic packaging",
       "compostable plastic",
+      "compostable packaging",
+      "compostable",
       "number 7",
       "no 7",
       "code 7",
@@ -276,13 +284,52 @@ export function getPlastic(code: number): Plastic | undefined {
   return PLASTICS.find((plastic) => plastic.code === code);
 }
 
+export type GuideMatchKind = "code" | "alias";
+
 export type DescriptionMatch =
-  | { status: "matched"; plastic: Plastic }
+  | {
+      status: "matched";
+      plastic: Plastic;
+      matchKind: GuideMatchKind;
+      /** Normalized alias that fired when matchKind is "alias". */
+      matchedAlias?: string;
+    }
   | { status: "ambiguous"; message: string }
   | { status: "unmatched"; message: string };
 
 const UNMATCHED_MESSAGE =
   "Could not match that to a plastic type. Try a common item name (water bottle, milk jug, yogurt cup, grocery bag, styrofoam) or the number in the recycling mark (1–7).";
+
+/**
+ * Short trust-building explanation for a guide hit (which code/alias fired).
+ */
+export function reasonForGuideMatch(match: Extract<DescriptionMatch, { status: "matched" }>): string {
+  const { plastic, matchKind, matchedAlias } = match;
+  if (matchKind === "code") {
+    return `Matched recycling mark / resin code #${plastic.code} (${plastic.name}).`;
+  }
+
+  const alias = matchedAlias ?? "item";
+  if (/yogurt|yoghurt/.test(alias)) {
+    return `Matched guide alias “${alias}” for yogurt-style tubs (${plastic.name} #${plastic.code}).`;
+  }
+  if (plastic.code === 1 && /(water|soda|pop|drink|beverage|pet)/.test(alias)) {
+    return `Matched guide alias “${alias}” for clear drink bottles (${plastic.name} #${plastic.code}).`;
+  }
+  if (plastic.code === 2 && /(milk|detergent|shampoo|laundry|bleach|hdpe)/.test(alias)) {
+    return `Matched guide alias “${alias}” for jugs and rigid bottles (${plastic.name} #${plastic.code}).`;
+  }
+  if (plastic.code === 4 && /(bag|film|wrap|ldpe)/.test(alias)) {
+    return `Matched guide alias “${alias}” for bags and film (${plastic.name} #${plastic.code}).`;
+  }
+  if (plastic.code === 5 && /(margarine|butter|cap|medicine|pill|pp)/.test(alias)) {
+    return `Matched guide alias “${alias}” for tubs and caps (${plastic.name} #${plastic.code}).`;
+  }
+  if (plastic.code === 6 && /(foam|styro|ps)/.test(alias)) {
+    return `Matched guide alias “${alias}” for foam packaging (${plastic.name} #${plastic.code}).`;
+  }
+  return `Matched guide alias “${alias}” → ${plastic.name} #${plastic.code}.`;
+}
 
 /**
  * Match a user description to a resin code using the built-in guide.
@@ -302,19 +349,24 @@ export function matchDescription(input: string): DescriptionMatch {
   const bare = text.match(BARE_CODE);
   if (bare) {
     const plastic = getPlastic(Number(bare[1]));
-    if (plastic) return { status: "matched", plastic };
+    if (plastic) return { status: "matched", plastic, matchKind: "code" };
   }
 
   const coded = ` ${raw} `.match(CODE_IN_TEXT) ?? ` ${text} `.match(CODE_IN_TEXT);
   if (coded) {
     const plastic = getPlastic(Number(coded[1]));
-    if (plastic) return { status: "matched", plastic };
+    if (plastic) return { status: "matched", plastic, matchKind: "code" };
   }
 
   const padded = ` ${text} `;
   for (const entry of ALIASES) {
     if (padded.includes(` ${entry.alias} `)) {
-      return { status: "matched", plastic: entry.plastic };
+      return {
+        status: "matched",
+        plastic: entry.plastic,
+        matchKind: "alias",
+        matchedAlias: entry.alias,
+      };
     }
   }
 
